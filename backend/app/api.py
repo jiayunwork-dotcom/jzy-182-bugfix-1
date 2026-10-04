@@ -59,6 +59,7 @@ def create_project(request: Request):
     normalized = {
         "name": validated["name"],
         "start_time": validated["start_time"],
+        "timezone": validated["timezone"],
         "tasks": validated["tasks"],
         "task_order": validated["task_order"],
         "resources": validated["resources"],
@@ -93,9 +94,11 @@ def get_plan(request: Request, project_id: str):
 def get_state(request: Request, project_id: str, at: str | None = None):
     project = _load(request, project_id)
     reports = _store(request).list_reports(project_id)
+    tz = project["payload"].get("timezone", "UTC")
     try:
         state = projection.project_state(
-            project["plan"], project["payload"]["tasks"], reports, at=at)
+            project["plan"], project["payload"]["tasks"], reports, at=at,
+            tz=tz, tasks_payload=project["payload"])
     except ValueError as exc:  # bad 'at' timestamp
         raise ApiError([{"field": "at", "message": str(exc)}])
     return state
@@ -105,9 +108,12 @@ def get_state(request: Request, project_id: str, at: str | None = None):
 def get_fever(request: Request, project_id: str):
     project = _load(request, project_id)
     reports = _store(request).list_reports(project_id)
+    tz = project["payload"].get("timezone", "UTC")
     points = fever.trajectory(
-        project["plan"], project["payload"]["tasks"], reports)
+        project["plan"], project["payload"]["tasks"], reports,
+        tz=tz, tasks_payload=project["payload"])
     return {"thresholds": project["plan"]["thresholds"],
+            "timezone": project["plan"].get("timezone", tz),
             "points": points}
 
 
@@ -115,9 +121,10 @@ def get_fever(request: Request, project_id: str):
 def post_report(request: Request, project_id: str):
     project = _load(request, project_id)
     body = _json(request)
+    tz = project["payload"].get("timezone", "UTC")
     try:
-        report = validate_report(body,
-                                 set(project["payload"]["tasks"].keys()))
+        report = validate_report(
+            body, set(project["payload"]["tasks"].keys()), tz)
     except ValidationIssue as exc:
         raise ApiError([exc.to_dict()])
 
@@ -125,7 +132,8 @@ def post_report(request: Request, project_id: str):
         project_id, report, datetime.now(timezone.utc).isoformat())
     reports = _store(request).list_reports(project_id)
     state = projection.project_state(
-        project["plan"], project["payload"]["tasks"], reports)
+        project["plan"], project["payload"]["tasks"], reports,
+        tz=tz, tasks_payload=project["payload"])
     return {"inserted": inserted,
             "duplicate": not inserted,
             "report_id": report["report_id"],

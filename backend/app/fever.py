@@ -7,10 +7,11 @@ pure replay (prefix fold) -- no snapshots are stored.
 from __future__ import annotations
 
 from . import projection
-from .worktime import parse_dt
+from .worktime import parse_dt, resolve_timezone
 
 
-def trajectory(plan: dict, tasks: dict, reports: list[dict]) -> list[dict]:
+def trajectory(plan: dict, tasks: dict, reports: list[dict],
+               tz=None, tasks_payload: dict | None = None) -> list[dict]:
     """One point per report in the total order (at, report_id).
 
     A point equals the state reached with every report whose timestamp is
@@ -18,11 +19,14 @@ def trajectory(plan: dict, tasks: dict, reports: list[dict]) -> list[dict]:
     same unique state at that instant; the report_id tiebreak only fixes
     their listing order.
     """
-    project_start = parse_dt(plan["project_start"])
-    seq = projection.sorted_reports(reports, project_start)
+    zone = projection.project_tz(plan, tasks_payload) if tz is None \
+        else resolve_timezone(tz)
+    project_start = parse_dt(plan["project_start"], zone)
+    seq = projection.sorted_reports(reports, project_start, zone)
     points = []
     for rep in seq:
-        st = projection.project_state(plan, tasks, seq, at=rep["_dt"])
+        st = projection.project_state(
+            plan, tasks, seq, at=rep["_dt"], tz=zone)
         points.append({
             "at": st["at"],
             "report_id": rep["report_id"],

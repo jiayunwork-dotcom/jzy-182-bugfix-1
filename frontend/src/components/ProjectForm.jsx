@@ -2,7 +2,11 @@ import { useMemo, useState } from 'react'
 
 const EXAMPLE = {
   name: '四任务示例',
-  start_time: '2026-01-05T09:00:00Z',
+  // 团队按北京时间作息：日历（工作日、09:00-18:00）按该时区的墙钟判定；
+  // 不带偏移的 start_time 就是该时区的墙钟时间。
+  // 不填 timezone 时默认 UTC（旧项目口径，数字不变）。
+  timezone: 'Asia/Shanghai',
+  start_time: '2026-01-05T09:00:00',
   resources: [{ id: 'eng', name: '工程师', capacity: 1 }],
   tasks: [
     { id: 'A', name: '需求', predecessors: [], demands: { eng: 1 },

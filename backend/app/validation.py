@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .worktime import resolve_timezone
+
 
 class ValidationIssue(Exception):
     def __init__(self, field: str, message: str):
@@ -173,9 +175,27 @@ def validate_project(payload: dict[str, Any]) -> dict[str, Any]:
     if start is not None and not isinstance(start, str):
         raise ValidationIssue("start_time", "must be an ISO datetime string")
 
+    # ----- timezone ---------------------------------------------------- #
+    # None means UTC (the historical default); explicit values must be a
+    # valid IANA name (Asia/Shanghai) or fixed offset (+08:00 / UTC+8).
+    tz_raw = payload.get("timezone")
+    if tz_raw is None:
+        timezone_name = "UTC"
+    elif not isinstance(tz_raw, str) or not tz_raw.strip():
+        raise ValidationIssue("timezone", "must be an IANA timezone name "
+                                          "or fixed offset, e.g. Asia/Shanghai")
+    else:
+        timezone_name = tz_raw.strip()
+        try:
+            resolve_timezone(timezone_name)
+        except ValueError:
+            raise ValidationIssue("timezone",
+                                  f"unknown timezone {timezone_name!r}")
+
     return {
         "name": name.strip(),
         "start_time": start,
+        "timezone": timezone_name,
         "tasks": tasks,
         "task_order": order,
         "resources": resources,
@@ -210,7 +230,8 @@ def _assert_acyclic(tasks: dict[str, dict], order: list[str]) -> None:
 
 # ------------------------------ report ----------------------------------- #
 
-def validate_report(payload: dict[str, Any], task_ids: set[str]) -> dict[str, Any]:
+def validate_report(payload: dict[str, Any], task_ids: set[str],
+                    timezone: str = "UTC") -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValidationIssue("body", "payload must be an object")
     rid = payload.get("report_id")
@@ -224,6 +245,13 @@ def validate_report(payload: dict[str, Any], task_ids: set[str]) -> dict[str, An
     at = payload.get("at")
     if not isinstance(at, str) or not at.strip():
         raise ValidationIssue("at", "ISO datetime is required")
+    try:
+        # Naive strings are accepted verbatim (project-timezone wall time);
+        # only malformed strings are rejected here.
+        from .worktime import parse_dt
+        parse_dt(at, timezone)
+    except ValueError:
+        raise ValidationIssue("at", f"invalid ISO datetime {at!r}")
     kind = payload.get("kind")
     if kind not in ("remaining", "done"):
         raise ValidationIssue("kind", "must be 'remaining' or 'done'")

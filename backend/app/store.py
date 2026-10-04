@@ -92,6 +92,22 @@ class Store:
         d["plan"] = json.loads(d.pop("plan_json"))
         return d
 
+    def iter_projects_raw(self):
+        """Yield raw stored rows (payload/plan still JSON-encoded)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, name, payload_json, plan_json, created_at "
+                "FROM projects ORDER BY created_at, id").fetchall()
+        yield from rows
+
+    def update_project_json(self, pid: str, payload_json: str,
+                            plan_json: str) -> None:
+        """Replace stored payload/plan JSON (used by the timezone migration)."""
+        with self._writer_lock, self._connect() as conn:
+            conn.execute(
+                "UPDATE projects SET payload_json=?, plan_json=? WHERE id=?",
+                (payload_json, plan_json, pid))
+
     # --------------------------- reports ------------------------------- #
     def add_report(self, project_id: str, report: dict, created_at: str):
         """Append a report. Returns True if inserted, False if duplicate."""

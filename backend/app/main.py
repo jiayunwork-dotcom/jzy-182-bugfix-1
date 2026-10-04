@@ -12,12 +12,22 @@ from fastapi.staticfiles import StaticFiles
 
 from .api import router as api_router
 from .errors import ApiError, api_error_handler
+from .migration import migrate_store
 from .store import Store
 
 STATIC_DIR = Path(os.environ.get("CCPM_STATIC_DIR", "/app/static"))
 
 app = FastAPI(title="CCPM progress platform")
 app.state.store = Store(os.environ.get("CCPM_DB_PATH", "/data/ccpm.db"))
+
+# One-time migration: legacy projects (no timezone field) get their working
+# timezone inferred from the offsets of their stored timestamps and their
+# plan rebuilt.  Idempotent; see app/migration.py and docs/DECISIONS.md.
+_migrated = migrate_store(app.state.store)
+if _migrated:
+    import logging
+    logging.getLogger("ccpm.migration").warning(
+        "timezone migration applied to %d project(s)", _migrated)
 
 
 @app.middleware("http")

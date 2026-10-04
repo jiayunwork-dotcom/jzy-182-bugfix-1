@@ -15,9 +15,10 @@ backend/
     validation.py   # 网络建模与字段级校验（成环/引用/容量/分界线…）
     scheduler.py    # 资源冲突消解（确定性 Serial-SGS）+ 关键链识别
     buffers.py      # 缓冲推算口径（0.5×(保守−激进)）及其逐项依据
-    worktime.py     # 工作日历（周一至周五 09:00-18:00）
+    worktime.py     # 工作日历（项目时区墙钟，周一至周五 09:00-18:00）
     projection.py   # 汇报流折叠 → 当前/历史时刻状态投影（纯函数）
     fever.py        # 发烧图轨迹查询（每个点带任务剩余工期快照）
+    migration.py    # 老项目时区一次性迁移（偏移投票 + 计划重建，幂等）
     store.py        # SQLite 持久化（projects + 追加式 reports，WAL）
     api.py          # HTTP 接口层（不做计算）
     errors.py       # 统一错误响应
@@ -68,7 +69,7 @@ npm run dev
 cd backend && pip install -r requirements-dev.txt && pytest
 ```
 
-覆盖（46 个用例）：
+覆盖（64 个用例）：
 
 * 四任务算例关键链 = **15**（A→B→C→D，B 先占工程师）；
 * 无资源冲突时关键链 == 纯依赖关键路径（A→B→D = 12）；
@@ -78,6 +79,11 @@ cd backend && pip install -r requirements-dev.txt && pytest
 * 重复汇报幂等；历史时刻回放 == 前缀折叠；
 * 重启后从 SQLite 恢复的状态/发烧图与重启前一致；
 * 多线程并发汇报后的状态与串行提交一致；
+* **项目时区**：日历按项目时区墙钟判定；裸时间戳按项目时区解释；
+  同组本地墙钟时刻在 +08:00 与 UTC 项目上映射出相同工作日偏移；
+* **老数据过渡**：全 +08:00 老项目启动时迁移并修正发烧图；
+  全 Z 老项目逐字节不动；迁移幂等；迁移后历史回放与并发仍等价串行；
+  未知时区/非法时刻返回 422；
 * 全部拒收路径（成环、未知引用、负工期、agg>cons、超容量、分界线越界）。
 
 ## HTTP 接口
@@ -96,7 +102,8 @@ cd backend && pip install -r requirements-dev.txt && pytest
 ```json
 {
   "name": "四任务示例",
-  "start_time": "2026-01-05T09:00:00Z",
+  "timezone": "Asia/Shanghai",
+  "start_time": "2026-01-05T09:00:00",
   "resources": [{"id": "eng", "name": "工程师", "capacity": 1}],
   "tasks": [
     {"id": "A", "name": "需求", "predecessors": [], "demands": {"eng": 1},
@@ -112,12 +119,24 @@ cd backend && pip install -r requirements-dev.txt && pytest
 }
 ```
 
+### 时区口径（重要）
+
+* `timezone` 可选：IANA 名（`Asia/Shanghai`）或固定偏移（`+08:00`），
+  缺省为 `UTC`。工作日历（工作日、09:00–18:00）按**该时区本地墙钟**判定。
+* `start_time` 与汇报 `at`：**不带偏移**的串（`2026-01-05T09:00:00`）
+  按项目时区墙钟解释；**带偏移**的串（`Z` / `+08:00`）表示那个绝对时刻。
+* 不填时区、全程用 Z 的项目，所有数字与旧版本逐字一致。
+* 老项目（无 `timezone` 字段）启动时按其历史时间戳的偏移自动迁移，
+  汇报无需重录；口径与边界情况见
+  **[docs/DECISIONS.md](docs/DECISIONS.md) 第 6 节**。
+
 ### 汇报 JSON 示例
 
 ```json
-{"report_id": "r12", "task_id": "B", "at": "2026-01-20T17:00:00Z",
+{"report_id": "r12", "task_id": "B", "at": "2026-01-20T17:00:00+08:00",
  "kind": "remaining", "remaining_days": 2.5}
 ```
 
-`kind` 为 `done` 时不带 `remaining_days`。编号重复按幂等处理；时刻早于
-已有汇报会自动插回正确位置重算（不拒收）。
+`at` 不带偏移时按项目时区墙钟解释（页面录入框提交的就是这种），
+带 `Z`/偏移时表示该绝对时刻。`kind` 为 `done` 时不带 `remaining_days`。
+编号重复按幂等处理；时刻早于已有汇报会自动插回正确位置重算（不拒收）。

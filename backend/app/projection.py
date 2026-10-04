@@ -23,7 +23,20 @@ for every feeding buffer.
 """
 from __future__ import annotations
 
-from .worktime import parse_dt, work_offset
+from .worktime import parse_dt, resolve_timezone, work_offset
+
+
+def project_tz(plan: dict, tasks_payload: dict | None = None):
+    """Effective timezone of a stored project.
+
+    New plans carry ``timezone`` explicitly; plans written by older
+    releases do not -- fall back to the payload field (filled by the
+    one-time migration), then to UTC.
+    """
+    spec = plan.get("timezone")
+    if spec is None and isinstance(tasks_payload, dict):
+        spec = tasks_payload.get("timezone")
+    return resolve_timezone(spec or "UTC")
 
 
 def _task_fold(tasks, report_seq):
@@ -50,7 +63,7 @@ def _task_fold(tasks, report_seq):
     return remaining, status, actual_finish_day, last_report_at, last_report_id
 
 
-def sorted_reports(reports, project_start):
+def sorted_reports(reports, project_start, tz="UTC"):
     """Return reports in the total order (report time, report id).
 
     Arrival order is irrelevant: this ordering is what makes out-of-order
@@ -58,9 +71,9 @@ def sorted_reports(reports, project_start):
     """
     seq = []
     for rep in reports:
-        at = parse_dt(rep["at"])
+        at = parse_dt(rep["at"], tz)
         seq.append({**rep, "at": at.isoformat(), "_dt": at,
-                    "_at_day": work_offset(project_start, at)})
+                    "_at_day": work_offset(project_start, at, tz)})
     seq.sort(key=lambda r: (r["_dt"], r["report_id"]))
     return seq
 
@@ -94,25 +107,30 @@ def _pct(push: float, size: float) -> float:
 
 
 def project_state(plan: dict, tasks: dict, reports: list[dict],
-                  at: str | None = None) -> dict:
+                  at: str | None = None, tz=None,
+                  tasks_payload: dict | None = None) -> dict:
     """Project the full state, optionally replaying only up to ``at``.
 
     ``at=None`` means "the latest known report moment"; if there are no
     reports, the project start is used.  Replay by *moment* includes every
     report whose timestamp <= ``at`` (two managers reporting at the same
     instant are both visible at that instant).
+
+    ``tz`` is the project timezone (IANA name / fixed offset).  The
+    working calendar and every naive timestamp are interpreted in it.
     """
-    project_start = parse_dt(plan["project_start"])
-    seq = sorted_reports(reports, project_start)
+    zone = project_tz(plan, tasks_payload) if tz is None else resolve_timezone(tz)
+    project_start = parse_dt(plan["project_start"], zone)
+    seq = sorted_reports(reports, project_start, zone)
     if at is not None:
-        cutoff = parse_dt(at)
+        cutoff = parse_dt(at, zone)
         seq = [r for r in seq if r["_dt"] <= cutoff]
         now = cutoff
     elif seq:
         now = seq[-1]["_dt"]
     else:
         now = project_start
-    now_day = work_offset(project_start, now)
+    now_day = work_offset(project_start, now, zone)
 
     (remaining, status, actual_finish_day,
      last_report_at, last_report_id) = _task_fold(tasks, seq)

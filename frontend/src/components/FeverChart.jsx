@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatInZone } from '../time.js'
 
 // Fever chart: x = critical-chain completion %, y = project-buffer consumed %.
 // The two project thresholds are *horizontal* boundary lines dividing the
@@ -14,6 +15,7 @@ export default function FeverChart({ fever, loading }) {
   if (!fever) return null
   const { yellow_pct, red_pct } = fever.thresholds
   const points = fever.points
+  const tz = fever.timezone || 'UTC'
 
   const x = (pct) => PAD + (pct / 100) * (W - PAD - 12)
   const y = (pct) => H - PAD - (Math.min(pct, 100) / 100) * (H - PAD - 12)
@@ -77,7 +79,7 @@ export default function FeverChart({ fever, loading }) {
               r={selected === i ? 7 : 5}
               className={`fever-dot zone-${p.zone}`}
               onClick={() => setSelected(i)}>
-              <title>{`${p.at} · ${p.zone.toUpperCase()}`}</title>
+              <title>{`${formatInZone(p.at, tz)} · ${p.zone.toUpperCase()}`}</title>
             </circle>
           ))}
           {points.length === 0 && (
@@ -88,7 +90,7 @@ export default function FeverChart({ fever, loading }) {
         </svg>
 
         {selected !== null && points[selected] && (
-          <PointDetail point={points[selected]}
+          <PointDetail point={points[selected]} tz={tz}
             onClose={() => setSelected(null)} />
         )}
       </div>
@@ -96,10 +98,10 @@ export default function FeverChart({ fever, loading }) {
   )
 }
 
-function PointDetail({ point, onClose }) {
+function PointDetail({ point, tz, onClose }) {
   return (
     <div className="point-detail">
-      <h3>{new Date(point.at).toLocaleString()} 时刻</h3>
+      <h3>{formatInZone(point.at, tz)} 时刻</h3>
       <p>汇报 {point.report_id} · 区域 <strong>{point.zone}</strong> ·
         链完成 {point.critical_chain_completion_pct}% ·
         缓冲消耗 {point.buffer_consumed_pct}%</p>
