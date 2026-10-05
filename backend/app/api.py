@@ -59,6 +59,7 @@ def create_project(request: Request):
     normalized = {
         "name": validated["name"],
         "start_time": validated["start_time"],
+        "timezone": validated["timezone"],
         "tasks": validated["tasks"],
         "task_order": validated["task_order"],
         "resources": validated["resources"],

@@ -2,11 +2,14 @@
 // Critical-chain tasks are highlighted; the project buffer (PB) and feeding
 // buffers (FB) are drawn as hatched bars; resource edges are listed.
 
+import { formatWall } from '../time.js'
+
 function barColor(task, onCc) {
   return onCc ? 'var(--cc)' : 'var(--normal)'
 }
 
 export default function GanttChart({ payload, plan }) {
+  const tz = plan.timezone || 'UTC'
   const rows = payload.task_order.map((id) => {
     const t = payload.tasks[id]
     const s = plan.schedule[id]
@@ -43,6 +46,8 @@ export default function GanttChart({ payload, plan }) {
                 {Object.keys(r.demands).length > 0 &&
                   ` · ${Object.entries(r.demands)
                     .map(([k, v]) => `${k}×${v}`).join(', ')}`}
+                <br />
+                {formatWall(r.start_at, tz)} → {formatWall(r.finish_at, tz)}
               </small>
             </div>
             <div className="gantt-track">
@@ -92,6 +97,9 @@ export default function GanttChart({ payload, plan }) {
         </div>
       </div>
 
+      <div className="plan-meta">
+        <span>作息时区：<strong>{tz}</strong>（工作日历按当地 09:00–18:00 计算）</span>
+      </div>
       <div className="plan-meta">
         <span>关键链：<strong>{plan.critical_chain.join(' → ')}</strong></span>
         <span>计划工期（激进）：<strong>{plan.makespan_days} 工作日</strong></span>

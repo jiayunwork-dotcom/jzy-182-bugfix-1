@@ -18,6 +18,11 @@ STATIC_DIR = Path(os.environ.get("CCPM_STATIC_DIR", "/app/static"))
 
 app = FastAPI(title="CCPM progress platform")
 app.state.store = Store(os.environ.get("CCPM_DB_PATH", "/data/ccpm.db"))
+# One-time, idempotent backfill: legacy projects get their working timezone
+# inferred from stored offsets and their stored plan rebuilt in that zone.
+# Pure-Z data resolves to UTC and rebuilds byte-identically (see
+# docs/DECISIONS.md, section 6).
+app.state.store.migrate_timezones()
 
 
 @app.middleware("http")

@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react'
+import { wallNowInput } from '../time.js'
 
 // Report submission form. Reports are append-only; the backend folds them by
 // (timestamp, report id), so out-of-order submission is accepted.
+//
+// The datetime field shows *project wall time* (the team's working zone),
+// and the value is submitted as a naive ISO datetime.  The backend attaches
+// naive timestamps to the project's own timezone, so what the user types at,
+// say, 17:00 Beijing is recorded as 17:00 Beijing regardless of the
+// browser/machine timezone.
 
-function nowIsoLocal() {
-  const d = new Date()
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-  return d.toISOString().slice(0, 16)
-}
-
-export default function ReportForm({ payload, onSubmitted, lastState }) {
+export default function ReportForm({ payload, plan, onSubmitted, lastState }) {
+  const timezone = plan?.timezone || payload.timezone || 'UTC'
   const [reportId, setReportId] = useState('')
   const [taskId, setTaskId] = useState(payload.task_order[0] || '')
-  const [at, setAt] = useState(nowIsoLocal())
+  const [at, setAt] = useState(() => wallNowInput(timezone))
   const [kind, setKind] = useState('remaining')
   const [remaining, setRemaining] = useState('1')
   const [notice, setNotice] = useState(null)
@@ -29,7 +31,8 @@ export default function ReportForm({ payload, onSubmitted, lastState }) {
     const body = {
       report_id: reportId.trim(),
       task_id: taskId,
-      at: new Date(at).toISOString(),
+      // naive wall time; the backend interprets it in the project zone
+      at,
       kind,
     }
     if (kind === 'remaining') {
@@ -62,7 +65,7 @@ export default function ReportForm({ payload, onSubmitted, lastState }) {
             ))}
           </select>
         </label>
-        <label>汇报时刻
+        <label>汇报时刻（{timezone} 当地墙上时间）
           <input type="datetime-local" value={at}
             onChange={(e) => setAt(e.target.value)} required />
         </label>

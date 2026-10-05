@@ -9,7 +9,10 @@ not depend on pydantic.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
+
+from .timezones import UnknownTimezone, derive_for_start, get_tz
 
 
 class ValidationIssue(Exception):
@@ -172,10 +175,36 @@ def validate_project(payload: dict[str, Any]) -> dict[str, Any]:
     start = payload.get("start_time")
     if start is not None and not isinstance(start, str):
         raise ValidationIssue("start_time", "must be an ISO datetime string")
+    if isinstance(start, str):
+        try:
+            datetime.fromisoformat(start.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValidationIssue("start_time",
+                                  "must be an ISO 8601 datetime string")
+
+    # ----- working timezone -------------------------------------------- #
+    # Explicit IANA name / fixed offset wins; otherwise the zone is derived
+    # once from the start timestamp's own UTC offset and the resolved name is
+    # carried in the result so it is persisted, never re-derived later.
+    tz_field = payload.get("timezone")
+    if tz_field is not None and (not isinstance(tz_field, str)
+                                 or not tz_field.strip()):
+        raise ValidationIssue("timezone",
+                              "must be an IANA zone name (e.g. 'Asia/"
+                              "Shanghai') or a fixed offset (e.g. 'UTC+08:00')")
+    try:
+        if tz_field:
+            tz_name = tz_field.strip()
+            get_tz(tz_name)
+        else:
+            tz_name, _tz = derive_for_start(start)
+    except UnknownTimezone as exc:
+        raise ValidationIssue("timezone", str(exc))
 
     return {
         "name": name.strip(),
         "start_time": start,
+        "timezone": tz_name,
         "tasks": tasks,
         "task_order": order,
         "resources": resources,
@@ -224,6 +253,10 @@ def validate_report(payload: dict[str, Any], task_ids: set[str]) -> dict[str, An
     at = payload.get("at")
     if not isinstance(at, str) or not at.strip():
         raise ValidationIssue("at", "ISO datetime is required")
+    try:
+        datetime.fromisoformat(at.strip().replace("Z", "+00:00"))
+    except ValueError:
+        raise ValidationIssue("at", "must be an ISO 8601 datetime string")
     kind = payload.get("kind")
     if kind not in ("remaining", "done"):
         raise ValidationIssue("kind", "must be 'remaining' or 'done'")

@@ -34,10 +34,11 @@ plan) and never shorter than the dependency critical path.
 from __future__ import annotations
 
 import heapq
-from datetime import datetime, timezone
+from datetime import datetime
 
 from .buffers import buffer_basis as _buffer_basis, buffer_size as _buffer_size
-from .worktime import parse_dt, work_add
+from .timezones import UTC, get_tz
+from .worktime import Calendar
 
 EPS = 1e-9
 
@@ -215,12 +216,16 @@ def build_plan(validated: dict, project_start: datetime | None = None) -> dict:
     resources = validated["resources"]
     order = validated["task_order"]
 
+    tz_name = validated.get("timezone")
+    tz = get_tz(tz_name) if tz_name else UTC
+    cal = Calendar(tz)
+
     if project_start is None:
         if validated.get("start_time"):
-            project_start = parse_dt(validated["start_time"])
+            project_start = cal.parse_dt(validated["start_time"])
         else:
-            project_start = datetime.now(timezone.utc)
-    project_start = parse_dt(project_start)
+            project_start = datetime.now(UTC)
+    project_start = cal.parse_dt(project_start)
 
     topo = _topo(tasks, order)
     weights = _downstream_weights(tasks, topo)
@@ -298,13 +303,14 @@ def build_plan(validated: dict, project_start: datetime | None = None) -> dict:
         scheduled[tid] = {
             "start_day": start[tid],
             "finish_day": finish[tid],
-            "start_at": work_add(project_start, start[tid]).isoformat(),
-            "finish_at": work_add(project_start, finish[tid]).isoformat(),
+            "start_at": cal.work_add(project_start, start[tid]).isoformat(),
+            "finish_at": cal.work_add(project_start, finish[tid]).isoformat(),
             "on_critical_chain": tid in cc_set,
         }
 
     return {
         "project_start": project_start.isoformat(),
+        "timezone": tz_name,
         "makespan_days": makespan,
         "critical_chain": cc_ids,
         "project_buffer": {

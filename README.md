@@ -15,7 +15,8 @@ backend/
     validation.py   # 网络建模与字段级校验（成环/引用/容量/分界线…）
     scheduler.py    # 资源冲突消解（确定性 Serial-SGS）+ 关键链识别
     buffers.py      # 缓冲推算口径（0.5×(保守−激进)）及其逐项依据
-    worktime.py     # 工作日历（周一至周五 09:00-18:00）
+    worktime.py     # 工作日历（绑定项目时区，周一至周五 09:00-18:00）
+    timezones.py    # 项目作息时区解析/自动判定/老数据推断
     projection.py   # 汇报流折叠 → 当前/历史时刻状态投影（纯函数）
     fever.py        # 发烧图轨迹查询（每个点带任务剩余工期快照）
     store.py        # SQLite 持久化（projects + 追加式 reports，WAL）
@@ -68,7 +69,7 @@ npm run dev
 cd backend && pip install -r requirements-dev.txt && pytest
 ```
 
-覆盖（46 个用例）：
+覆盖（64 个用例）：
 
 * 四任务算例关键链 = **15**（A→B→C→D，B 先占工程师）；
 * 无资源冲突时关键链 == 纯依赖关键路径（A→B→D = 12）；
@@ -78,7 +79,12 @@ cd backend && pip install -r requirements-dev.txt && pytest
 * 重复汇报幂等；历史时刻回放 == 前缀折叠；
 * 重启后从 SQLite 恢复的状态/发烧图与重启前一致；
 * 多线程并发汇报后的状态与串行提交一致；
-* 全部拒收路径（成环、未知引用、负工期、agg>cons、超容量、分界线越界）。
+* 作息时区：`+08:00` 项目发烧轨迹逐点等于同墙上时间的 `Z` 对照组；计划
+  开/完工落在当地工作时段；IANA 时区、裸时间戳、历史回放均覆盖；
+* 老数据过渡：`+08:00` 旧库在启动迁移后直接出正确计划/发烧图且可重复
+  执行；纯 `Z` 旧项目迁移前后每个数字逐字段不变；
+* 全部拒收路径（成环、未知引用、负工期、agg>cons、超容量、分界线越界、
+  无法识别的时区）。
 
 ## HTTP 接口
 
@@ -96,7 +102,8 @@ cd backend && pip install -r requirements-dev.txt && pytest
 ```json
 {
   "name": "四任务示例",
-  "start_time": "2026-01-05T09:00:00Z",
+  "start_time": "2026-01-05T09:00:00+08:00",
+  "timezone": "Asia/Shanghai",
   "resources": [{"id": "eng", "name": "工程师", "capacity": 1}],
   "tasks": [
     {"id": "A", "name": "需求", "predecessors": [], "demands": {"eng": 1},
@@ -115,9 +122,18 @@ cd backend && pip install -r requirements-dev.txt && pytest
 ### 汇报 JSON 示例
 
 ```json
-{"report_id": "r12", "task_id": "B", "at": "2026-01-20T17:00:00Z",
+{"report_id": "r12", "task_id": "B", "at": "2026-01-20T17:00:00+08:00",
  "kind": "remaining", "remaining_days": 2.5}
 ```
 
 `kind` 为 `done` 时不带 `remaining_days`。编号重复按幂等处理；时刻早于
-已有汇报会自动插回正确位置重算（不拒收）。
+已有汇报会自动插回正确位置重算（不拒收）。不带偏移量的裸时间戳（如
+`2026-01-20T17:00:00`）按项目自己的作息时区解释。
+
+### 时区口径
+
+每个项目绑定一个作息时区（`timezone`，IANA 名称如 `Asia/Shanghai` 或固定
+偏移如 `UTC+08:00`），工作日历的 09:00–18:00 按该时区墙上时间计算；缺省时
+按 `start_time` 的偏移自动判定一次。升级前已录入的老项目在首次启动时自动
+推断回填并重建计划，无需删库重录；全程 `Z` 数据的项目数字保持不变。
+理由、代价与迁移细节见 **[docs/DECISIONS.md](docs/DECISIONS.md)** 第 6 节。

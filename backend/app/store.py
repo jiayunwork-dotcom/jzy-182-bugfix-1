@@ -64,6 +64,46 @@ class Store:
         with self._connect() as conn:
             conn.executescript(SCHEMA)
 
+    # ----------------------- legacy timezone migration ----------------- #
+    def migrate_timezones(self) -> dict:
+        """Backfill ``timezone`` for projects created before the field existed.
+
+        Idempotent: projects that already carry a resolved ``timezone`` (in
+        payload or plan JSON) are left untouched.  For the others the zone is
+        inferred from the UTC offsets seen on the start time and stored
+        reports (see timezones.infer_timezone_name), the payload is stamped,
+        and the plan is rebuilt so its ``project_start`` / ``start_at`` /
+        ``finish_at`` are rendered in the project's own wall clock.  Pure-Z
+        legacy data resolves to ``UTC`` and rebuilds to byte-identical JSON.
+        Returns a small summary ``{migrated, total}``.
+        """
+        from .scheduler import build_plan
+        from .timezones import infer_timezone_name
+
+        with self._writer_lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, payload_json, plan_json FROM projects"
+            ).fetchall()
+            migrated = 0
+            for row in rows:
+                payload = json.loads(row["payload_json"])
+                plan = json.loads(row["plan_json"])
+                if payload.get("timezone") and plan.get("timezone"):
+                    continue
+                ats = [r[0] for r in conn.execute(
+                    "SELECT at FROM reports WHERE project_id=?",
+                    (row["id"],)).fetchall()]
+                tz_name = payload.get("timezone") or infer_timezone_name(
+                    payload.get("start_time"), ats)
+                payload["timezone"] = tz_name
+                new_plan = build_plan(payload)
+                conn.execute(
+                    "UPDATE projects SET payload_json=?, plan_json=? WHERE id=?",
+                    (json.dumps(payload, ensure_ascii=False),
+                     json.dumps(new_plan, ensure_ascii=False), row["id"]))
+                migrated += 1
+        return {"migrated": migrated, "total": len(rows)}
+
     # --------------------------- projects ------------------------------ #
     def create_project(self, pid: str, name: str, payload: dict,
                        plan: dict, created_at: str) -> None:

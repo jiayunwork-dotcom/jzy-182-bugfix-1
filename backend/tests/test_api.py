@@ -180,13 +180,15 @@ def test_concurrent_reports_match_serial(tmp_path, monkeypatch):
     def payload_factory():
         return __import__("conftest").four_task_payload(1)
 
-    def build_app():
-        importlib.reload(main)
-        return main.app
+    # Build the application exactly once.  Reloading it inside worker
+    # threads races against started apps ("Cannot add middleware after an
+    # application has started"); sharing one app also matches production,
+    # where every request hits one Store guarded by one writer lock.
+    importlib.reload(main)
+    app = main.app
 
     from app.worktime import work_add
     # two projects: one hammered concurrently, one fed serially
-    app = build_app()
     with TestClient(app) as c:
         pid_par = c.post("/api/projects", json=payload_factory()).json()["id"]
         pid_ser = c.post("/api/projects", json=payload_factory()).json()["id"]
@@ -205,7 +207,8 @@ def test_concurrent_reports_match_serial(tmp_path, monkeypatch):
     errors = []
 
     def hammer(pid, items):
-        with TestClient(build_app()) as local:
+        # each thread gets its own portal to the single shared app
+        with TestClient(app) as local:
             for b in items:
                 r = local.post(f"/api/projects/{pid}/reports", json=b)
                 if r.status_code != 200:
@@ -223,7 +226,7 @@ def test_concurrent_reports_match_serial(tmp_path, monkeypatch):
         t.join()
     assert not errors
 
-    with TestClient(build_app()) as c:
+    with TestClient(app) as c:
         # unique report ids are r1..r5 (r4 is submitted twice)
         for b in bodies:
             c.post(f"/api/projects/{pid_ser}/reports", json=b)

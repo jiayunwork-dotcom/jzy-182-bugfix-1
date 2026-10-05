@@ -96,14 +96,16 @@ export default function App() {
               <GanttChart payload={planData.payload} plan={planData.plan} />
             )}
             {tab === 'fever' && (
-              <FeverChart fever={fever}
+              <FeverChart fever={fever} timezone={planData.plan.timezone}
                 loading={!fever} />
             )}
             {tab === 'report' && (
               <>
-                <ReportForm payload={planData.payload}
+                <ReportForm key={selectedId} payload={planData.payload}
+                  plan={planData.plan}
                   onSubmitted={handleReport} lastState={state} />
-                <FeverChart fever={fever} loading={!fever} />
+                <FeverChart fever={fever} timezone={planData.plan.timezone}
+                  loading={!fever} />
               </>
             )}
           </>

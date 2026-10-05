@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 
 const EXAMPLE = {
   name: '四任务示例',
-  start_time: '2026-01-05T09:00:00Z',
+  start_time: '2026-01-05T09:00:00+08:00',
+  timezone: 'Asia/Shanghai',
   resources: [{ id: 'eng', name: '工程师', capacity: 1 }],
   tasks: [
     { id: 'A', name: '需求', predecessors: [], demands: { eng: 1 },
@@ -51,7 +52,9 @@ export default function ProjectForm({ onCreate }) {
       <h2>录入 / 导入项目</h2>
       <p className="hint">
         粘贴任务网络 JSON（资源、任务紧前关系、激进取/保守工期、发烧分界线）。
-        所有校验与排程都在后端完成。
+        <code>timezone</code> 填团队作息时区（如 <code>Asia/Shanghai</code>，
+        IANA 名称或 <code>UTC+08:00</code> 偏移；留空则按 <code>start_time</code>
+        的偏移自动判定）。所有校验与排程都在后端完成。
       </p>
       <textarea
         className="json-input"

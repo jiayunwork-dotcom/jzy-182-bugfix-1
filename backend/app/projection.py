@@ -23,7 +23,30 @@ for every feeding buffer.
 """
 from __future__ import annotations
 
-from .worktime import parse_dt, work_offset
+from .timezones import UTC, get_tz
+from .worktime import Calendar
+
+
+def plan_calendar(plan: dict) -> Calendar:
+    """Calendar bound to the project's stored working zone (UTC for old plans)."""
+    tz_name = plan.get("timezone")
+    return Calendar(get_tz(tz_name) if tz_name else UTC)
+
+
+def sorted_reports(reports, project_start, cal: Calendar | None = None):
+    """Return reports in the total order (report time, report id).
+
+    Arrival order is irrelevant: this ordering is what makes out-of-order
+    submissions fold to the identical state as in-order ones.
+    """
+    cal = cal or Calendar(UTC)
+    seq = []
+    for rep in reports:
+        at = cal.parse_dt(rep["at"])
+        seq.append({**rep, "at": at.isoformat(), "_dt": at,
+                    "_at_day": cal.work_offset(project_start, at)})
+    seq.sort(key=lambda r: (r["_dt"], r["report_id"]))
+    return seq
 
 
 def _task_fold(tasks, report_seq):
@@ -48,21 +71,6 @@ def _task_fold(tasks, report_seq):
         last_report_id[tid] = rep["report_id"]
 
     return remaining, status, actual_finish_day, last_report_at, last_report_id
-
-
-def sorted_reports(reports, project_start):
-    """Return reports in the total order (report time, report id).
-
-    Arrival order is irrelevant: this ordering is what makes out-of-order
-    submissions fold to the identical state as in-order ones.
-    """
-    seq = []
-    for rep in reports:
-        at = parse_dt(rep["at"])
-        seq.append({**rep, "at": at.isoformat(), "_dt": at,
-                    "_at_day": work_offset(project_start, at)})
-    seq.sort(key=lambda r: (r["_dt"], r["report_id"]))
-    return seq
 
 
 def _chain_pushout(chain_ids, tasks, schedule, remaining, status,
@@ -102,17 +110,18 @@ def project_state(plan: dict, tasks: dict, reports: list[dict],
     report whose timestamp <= ``at`` (two managers reporting at the same
     instant are both visible at that instant).
     """
-    project_start = parse_dt(plan["project_start"])
-    seq = sorted_reports(reports, project_start)
+    cal = plan_calendar(plan)
+    project_start = cal.parse_dt(plan["project_start"])
+    seq = sorted_reports(reports, project_start, cal)
     if at is not None:
-        cutoff = parse_dt(at)
+        cutoff = cal.parse_dt(at)
         seq = [r for r in seq if r["_dt"] <= cutoff]
         now = cutoff
     elif seq:
         now = seq[-1]["_dt"]
     else:
         now = project_start
-    now_day = work_offset(project_start, now)
+    now_day = cal.work_offset(project_start, now)
 
     (remaining, status, actual_finish_day,
      last_report_at, last_report_id) = _task_fold(tasks, seq)

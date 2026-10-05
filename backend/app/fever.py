@@ -7,7 +7,7 @@ pure replay (prefix fold) -- no snapshots are stored.
 from __future__ import annotations
 
 from . import projection
-from .worktime import parse_dt
+from .projection import plan_calendar
 
 
 def trajectory(plan: dict, tasks: dict, reports: list[dict]) -> list[dict]:
@@ -18,8 +18,9 @@ def trajectory(plan: dict, tasks: dict, reports: list[dict]) -> list[dict]:
     same unique state at that instant; the report_id tiebreak only fixes
     their listing order.
     """
-    project_start = parse_dt(plan["project_start"])
-    seq = projection.sorted_reports(reports, project_start)
+    cal = plan_calendar(plan)
+    project_start = cal.parse_dt(plan["project_start"])
+    seq = projection.sorted_reports(reports, project_start, cal)
     points = []
     for rep in seq:
         st = projection.project_state(plan, tasks, seq, at=rep["_dt"])
